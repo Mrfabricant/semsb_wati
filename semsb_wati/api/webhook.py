@@ -14,6 +14,10 @@ def receive_wati_webhook():
 	"""
 	WATI calls this URL when a WhatsApp message is received.
 	Must respond within 5 seconds — we just log and return 200.
+
+	WATI eventType values observed:
+	  "message"         — real incoming message from WhatsApp
+	  "messageReceived" — used in WATI test mode only
 	"""
 	try:
 		# ── Parse the raw JSON body from WATI ─────────────────────────────
@@ -44,11 +48,14 @@ def receive_wati_webhook():
 		log.insert(ignore_permissions=True)
 		frappe.db.commit()
 
-		# ── Filter: only care about incoming PDF documents ────────────────
-		if event_type != "messageReceived":
+		# ── Filter: only care about incoming messages ──────────────────────
+		# WATI sends "message" for real messages, "messageReceived" in test mode
+		valid_events = ("message", "messageReceived")
+		if event_type not in valid_events:
 			log.db_set("status", "Ignored")
 			return {"status": "ignored", "reason": f"event: {event_type}"}
 
+		# ── Filter: only care about PDF documents ─────────────────────────
 		if msg_type != "document" or "pdf" not in mime_type.lower():
 			log.db_set("status", "Ignored")
 			return {"status": "ignored", "reason": f"not a PDF (type={msg_type}, mime={mime_type})"}
