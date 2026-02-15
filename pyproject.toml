@@ -5,6 +5,8 @@ description = "SEMSB WATI WhatsApp Integration for ERPNext"
 requires-python = ">=3.10"
 dependencies = [
     "requests",
+    "pdfplumber",
+    "python-dateutil",
 ]
 
 [build-system]
