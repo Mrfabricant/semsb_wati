@@ -1,0 +1,129 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2025-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Other",
+ "engine": "InnoDB",
+ "field_order": [
+  "api_configuration_section",
+  "wati_api_endpoint",
+  "api_key",
+  "column_break_api",
+  "enable_wati_integration",
+  "test_mode",
+  "webhook_url",
+  "sales_order_settings_section",
+  "default_company",
+  "default_price_list",
+  "column_break_so",
+  "auto_submit_sales_orders",
+  "notify_sender_on_success",
+  "success_message_template"
+ ],
+ "fields": [
+  {
+   "fieldname": "api_configuration_section",
+   "fieldtype": "Section Break",
+   "label": "API Configuration"
+  },
+  {
+   "fieldname": "wati_api_endpoint",
+   "fieldtype": "Data",
+   "label": "Wati API Endpoint",
+   "description": "e.g. https://live-mt-server.wati.io/1073791"
+  },
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "API Key",
+   "description": "Your Wati.io API key (kept secure)"
+  },
+  {
+   "fieldname": "column_break_api",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "enable_wati_integration",
+   "fieldtype": "Check",
+   "label": "Enable Wati Integration",
+   "default": "1"
+  },
+  {
+   "fieldname": "test_mode",
+   "fieldtype": "Check",
+   "label": "Test Mode",
+   "description": "Enable to log all webhooks without creating Sales Orders"
+  },
+  {
+   "fieldname": "webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL (Copy this to Wati.io)",
+   "read_only": 1,
+   "description": "Copy this URL and paste in Wati.io webhook settings"
+  },
+  {
+   "fieldname": "sales_order_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Sales Order Settings"
+  },
+  {
+   "fieldname": "default_company",
+   "fieldtype": "Link",
+   "label": "Default Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "default_price_list",
+   "fieldtype": "Link",
+   "label": "Default Price List",
+   "options": "Price List"
+  },
+  {
+   "fieldname": "column_break_so",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "auto_submit_sales_orders",
+   "fieldtype": "Check",
+   "label": "Auto Submit Sales Orders",
+   "description": "If checked, Sales Orders will be auto-submitted after creation"
+  },
+  {
+   "fieldname": "notify_sender_on_success",
+   "fieldtype": "Check",
+   "label": "Notify Sender on Success",
+   "default": "1"
+  },
+  {
+   "fieldname": "success_message_template",
+   "fieldtype": "Small Text",
+   "label": "Success Message Template",
+   "description": "Use {so_name}, {item_count}, {delivery_date} as placeholders",
+   "default": "Your Sales Order {so_name} has been received. Items: {item_count} | Delivery: {delivery_date}"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Semsb Wati",
+ "name": "Wati Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

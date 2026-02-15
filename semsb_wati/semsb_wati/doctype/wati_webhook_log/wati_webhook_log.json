@@ -1,0 +1,142 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2025-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Log",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "status",
+  "column_break_top",
+  "received_date",
+  "message_details_section",
+  "whatsapp_number",
+  "message_type",
+  "column_break_msg",
+  "wati_message_id",
+  "pdf_file",
+  "processing_section",
+  "webhook_data",
+  "error_log",
+  "result_section",
+  "created_so_import",
+  "sales_orders_created"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "WATI-LOG-.YYYY.-.MM.-.####"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "\nReceived\nProcessing\nSuccess\nError\nIgnored",
+   "default": "Received"
+  },
+  {
+   "fieldname": "column_break_top",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "received_date",
+   "fieldtype": "Datetime",
+   "label": "Received Date",
+   "default": "now",
+   "read_only": 1
+  },
+  {
+   "fieldname": "message_details_section",
+   "fieldtype": "Section Break",
+   "label": "Message Details"
+  },
+  {
+   "fieldname": "whatsapp_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "WhatsApp Number"
+  },
+  {
+   "fieldname": "message_type",
+   "fieldtype": "Data",
+   "label": "Message Type"
+  },
+  {
+   "fieldname": "column_break_msg",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "wati_message_id",
+   "fieldtype": "Data",
+   "label": "Wati Message ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pdf_file",
+   "fieldtype": "Attach",
+   "label": "PDF File"
+  },
+  {
+   "fieldname": "processing_section",
+   "fieldtype": "Section Break",
+   "label": "Processing"
+  },
+  {
+   "fieldname": "webhook_data",
+   "fieldtype": "Long Text",
+   "label": "Webhook Data",
+   "read_only": 1,
+   "description": "Raw webhook payload from Wati.io"
+  },
+  {
+   "fieldname": "error_log",
+   "fieldtype": "Long Text",
+   "label": "Error Log",
+   "read_only": 1
+  },
+  {
+   "fieldname": "result_section",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "fieldname": "created_so_import",
+   "fieldtype": "Link",
+   "label": "Created SO Import",
+   "options": "Wati SO Import"
+  },
+  {
+   "fieldname": "sales_orders_created",
+   "fieldtype": "Small Text",
+   "label": "Sales Orders Created",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2025-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Semsb Wati",
+ "name": "Wati Webhook Log",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 0
+  }
+ ],
+ "sort_field": "received_date",
+ "sort_order": "DESC",
+ "track_changes": 0
+}
