@@ -9,7 +9,7 @@ dependencies = [
 
 [build-system]
 requires = ["setuptools", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [tool.bench.frappe-dependencies]
 frappe = ">=15.0.0"
