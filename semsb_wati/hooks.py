@@ -1,5 +1,5 @@
 app_name = "semsb_wati"
-app_title = "SEMSB Wati Integration"
+app_title = "Semsb Wati"
 app_publisher = "SRRI Easwari Mills"
 app_description = "WhatsApp PDF to Sales Order automation via WATI"
 app_email = "admin@easwarimills.com"
