@@ -19,8 +19,6 @@ def receive_wati_webhook():
 	"""
 	WATI calls this URL when a WhatsApp message is received.
 	Must respond within 5 seconds.
-	We log immediately, then download PDF in the same request
-	(file is small enough — typically <5MB).
 	"""
 	try:
 		# ── Parse the raw JSON body from WATI ─────────────────────────────
@@ -35,10 +33,10 @@ def receive_wati_webhook():
 		msg_type   = payload.get("type", "")
 		wa_id      = payload.get("waId", "")
 		message_id = payload.get("id", "")
-		text       = payload.get("text", "") or ""   # filename for documents
-		data       = payload.get("data")              # URL string for documents
+		text       = payload.get("text", "") or ""
+		data       = payload.get("data")
 
-		# ── Always save a Webhook Log record first ─────────────────────────
+		# ── Always save a Webhook Log record first ────────────────────────
 		log = frappe.get_doc({
 			"doctype":         "Wati Webhook Log",
 			"status":          "Received",
@@ -77,8 +75,7 @@ def receive_wati_webhook():
 
 		try:
 			# Download PDF bytes from WATI
-			pdf_url = data  # the direct URL string
-			pdf_bytes = download_pdf(pdf_url)
+			pdf_bytes = download_pdf(data)
 
 			# Determine filename
 			filename = text if text.lower().endswith(".pdf") else "so_from_whatsapp.pdf"
@@ -96,16 +93,23 @@ def receive_wati_webhook():
 			file_doc.insert()
 			frappe.db.commit()
 
-			# Link the file to the log
+			# Link the file URL to the log and mark Success
 			log.db_set("pdf_file", file_doc.file_url)
+			log.db_set("status", "Success")    # ← mark as done
+			frappe.db.commit()
 
-			return {"status": "success", "log": log.name, "file": file_doc.file_url}
+			return {
+				"status":  "success",
+				"log":     log.name,
+				"file":    file_doc.file_url,
+				"message": f"PDF '{filename}' downloaded and attached successfully"
+			}
 
 		except Exception:
-			# PDF download failed — log the error but don't crash
 			frappe.log_error(frappe.get_traceback(), "WATI PDF Download Error")
 			log.db_set("status", "Error")
 			log.db_set("error_log", frappe.get_traceback())
+			frappe.db.commit()
 			return {"status": "error", "message": "PDF download failed", "log": log.name}
 
 	except json.JSONDecodeError:
