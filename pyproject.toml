@@ -1,0 +1,12 @@
+[project]
+name = "semsb_wati"
+version = "0.0.1"
+description = "SEMSB WATI WhatsApp Integration for ERPNext"
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
