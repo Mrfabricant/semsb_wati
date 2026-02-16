@@ -1,15 +1,10 @@
 """
 so_creator.py
 Creates ERPNext Sales Orders from parsed PDF data.
-
-Rules:
-- One Sales Order per unique SO number found in the PDF
-- Customer matched by name, auto-created if not found
-- Warehouse = factory from location mapping
-- Items skipped if not found in ERPNext Item master (logged)
 """
 
 import frappe
+from frappe.utils import getdate, today, add_days
 
 
 def create_sales_orders(parsed_pdf, settings) -> list:
@@ -19,10 +14,12 @@ def create_sales_orders(parsed_pdf, settings) -> list:
 	"""
 	created_sos = []
 
-	# Group items by their source SO number
+	# Group items by source SO number
 	so_groups = {}
 	for item in parsed_pdf.items:
-		so_no = item.source_so_no or (parsed_pdf.so_numbers[0] if parsed_pdf.so_numbers else "UNKNOWN")
+		so_no = item.source_so_no or (
+			parsed_pdf.so_numbers[0] if parsed_pdf.so_numbers else "UNKNOWN"
+		)
 		if so_no not in so_groups:
 			so_groups[so_no] = []
 		so_groups[so_no].append(item)
@@ -39,45 +36,62 @@ def create_sales_orders(parsed_pdf, settings) -> list:
 	return created_sos
 
 
+def _sanitize_delivery_date(date_str: str) -> str:
+	"""
+	Ensures delivery date is not in the past.
+	ERPNext rejects SO if delivery date < today.
+	If date is in the past, use today + 1 day.
+	"""
+	try:
+		parsed_date = getdate(date_str)
+		today_date = getdate(today())
+		if parsed_date < today_date:
+			return add_days(today(), 1)
+		return date_str
+	except Exception:
+		return add_days(today(), 1)
+
+
 def _create_single_so(source_so_no, customer_raw, items, settings) -> str:
 	"""Creates one ERPNext Sales Order."""
 
 	# ── 1. Resolve customer ───────────────────────────────────────────────
 	customer = _get_or_create_customer(customer_raw)
 
-	# ── 2. Earliest delivery date from items ──────────────────────────────
+	# ── 2. Delivery date — must not be in the past ────────────────────────
 	delivery_dates = [i.delivery_date for i in items if i.delivery_date]
-	delivery_date = min(delivery_dates) if delivery_dates else frappe.utils.today()
+	raw_delivery = min(delivery_dates) if delivery_dates else today()
+	delivery_date = _sanitize_delivery_date(raw_delivery)
 
 	# ── 3. Build SO line items ────────────────────────────────────────────
 	so_items = []
 	skipped = []
 
 	for item in items:
-		# Check item exists in ERPNext
 		if not frappe.db.exists("Item", item.item_code):
 			skipped.append(item.item_code)
 			frappe.log_error(
-				f"Item '{item.item_code}' not found in ERPNext Item master. "
-				f"Skipping for SO {source_so_no}.",
-				"WATI SO Creation - Item Not Found"
+				f"Item '{item.item_code}' not found in ERPNext. Skipping.",
+				"WATI SO - Item Not Found"
 			)
 			continue
+
+		item_delivery = _sanitize_delivery_date(item.delivery_date or raw_delivery)
 
 		so_items.append({
 			"item_code":     item.item_code,
 			"qty":           item.qty,
-			"delivery_date": item.delivery_date or delivery_date,
+			"delivery_date": item_delivery,
 			"warehouse":     item.factory,
 		})
 
 	if not so_items:
 		frappe.throw(
-			f"No valid items found for SO {source_so_no}. "
-			f"Skipped items: {', '.join(skipped)}"
+			f"No valid items for SO {source_so_no}. "
+			f"Missing items: {', '.join(skipped)}"
 		)
 
-	# ── 4. Get company currency ───────────────────────────────────────────
+	# ── 4. Company currency ───────────────────────────────────────────────
 	currency = frappe.db.get_value(
 		"Company", settings.default_company, "default_currency"
 	) or "MYR"
@@ -87,8 +101,8 @@ def _create_single_so(source_so_no, customer_raw, items, settings) -> str:
 		"doctype":       "Sales Order",
 		"company":       settings.default_company,
 		"customer":      customer,
-		"po_no":         source_so_no,       # customer's original SO ref
-		"po_date":       frappe.utils.today(),
+		"po_no":         source_so_no,
+		"po_date":       today(),
 		"delivery_date": delivery_date,
 		"order_type":    "Sales",
 		"currency":      currency,
@@ -98,7 +112,6 @@ def _create_single_so(source_so_no, customer_raw, items, settings) -> str:
 	so.flags.ignore_permissions = True
 	so.insert()
 
-	# Auto-submit if configured in Wati Settings
 	if settings.auto_submit_sales_orders:
 		so.submit()
 
@@ -107,15 +120,13 @@ def _create_single_so(source_so_no, customer_raw, items, settings) -> str:
 
 
 def _get_or_create_customer(customer_raw: str) -> str:
-	"""
-	Finds existing ERPNext Customer or creates a new one.
-	customer_raw: e.g. "TRENDCELL SDN BHD - DC1"
-	"""
-	# Exact match
+	"""Finds or creates ERPNext Customer."""
+
+	# Exact name match
 	if frappe.db.exists("Customer", customer_raw):
 		return customer_raw
 
-	# Partial match on customer_name field
+	# Match on customer_name field
 	match = frappe.db.get_value(
 		"Customer",
 		{"customer_name": customer_raw},
@@ -124,7 +135,7 @@ def _get_or_create_customer(customer_raw: str) -> str:
 	if match:
 		return match
 
-	# Create new customer
+	# Create new
 	cust = frappe.get_doc({
 		"doctype":        "Customer",
 		"customer_name":  customer_raw,
