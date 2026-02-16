@@ -7,6 +7,41 @@ import frappe
 from frappe.utils import getdate, today, add_days
 
 
+def _get_location_mapping_name(location_code: str) -> str:
+	"""
+	Converts PDF location code to Factory Location Mapping record name.
+	PDF gives "AVINA14" (uppercase) but record is named "Avina14".
+	Does a case-insensitive search and returns the correct record name.
+	"""
+	if not location_code:
+		return ""
+
+	# Try exact match first
+	if frappe.db.exists("Factory Location Mapping", location_code):
+		return location_code
+
+	# Case-insensitive search
+	result = frappe.db.get_value(
+		"Factory Location Mapping",
+		{"location_code": ["like", location_code]},
+		"name"
+	)
+	if result:
+		return result
+
+	# Manual mapping as fallback
+	# e.g. "AVINA14" -> "Avina14"
+	mapping = {
+		"AVINA14":  "Avina14",
+		"AVINA15":  "Avina15",
+		"AVINA101": "Avina101",
+		"AVINA102": "Avina102",
+		"AVINA103": "Avina103",
+		"AVINA104": "Avina104",
+	}
+	return mapping.get(location_code.upper(), "")
+
+
 def create_sales_orders(parsed_pdf, settings) -> list:
 	"""
 	Creates one Sales Order per unique SO number.
@@ -106,6 +141,9 @@ def _create_single_so(source_so_no, customer_raw, items, settings) -> str:
 		"delivery_date": delivery_date,
 		"order_type":    "Sales",
 		"currency":      currency,
+		# Location code from PDF — set on SO header level
+		# PDF gives "AVINA14" but record is named "Avina14" — lookup the exact name
+		"custom_location_code": _get_location_mapping_name(items[0].location_code if items else ""),
 		"items":         so_items,
 	})
 
