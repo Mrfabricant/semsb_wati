@@ -1,11 +1,6 @@
 """
 pdf_parser.py
 Parses SEM105 "Outstanding Sales Order Listing" PDF.
-
-Fixes applied:
-  1. SO header regex now handles single space (pdfplumber collapses spaces)
-  2. Item code regex stops at known suffixes (/BAG, /PKT, /G, -K etc.)
-     to prevent merging with next column word
 """
 
 import re
@@ -16,8 +11,6 @@ from typing import List, Optional
 import pdfplumber
 from dateutil import parser as date_parser
 
-
-# ─── Data Classes ─────────────────────────────────────────────────────────────
 
 @dataclass
 class ParsedLineItem:
@@ -42,32 +35,17 @@ class ParsedPDF:
 	parse_errors: List[str] = field(default_factory=list)
 
 
-# ─── Regex Patterns ────────────────────────────────────────────────────────────
-
-# SO header — single or multiple spaces after SO number
-# e.g. "SO-35312 TRENDCELL SDN BHD - DC1"
 RE_SO_HEADER = re.compile(r"^(SO-\d+)\s+(.+)$", re.MULTILINE)
-
-# Location code
-RE_LOCATION = re.compile(r"\bAVINA\d{2,3}\b")
-
-# Date DD/MM/YY or DD/MM/YYYY
-RE_DATE = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{2,4})\b")
-
-# Item code: stops at known unit suffixes to avoid merging with next word
-# Covers: /BAG, /PKT, /G, /KG, /BOX, /CTN, /PCS, -K, -25KG, etc.
-# The item code ends when we hit a space followed by an uppercase description word
-RE_ITEM_CODE = re.compile(
-    r"^([A-Z][A-Z0-9\-]+(?:/"
-    r"(?:BAG|PKT|BAG|KG|G|BOX|CTN|PCS|SET|TIN|BTL|BT|BTL|ROLL|PAC|PAK|UNIT)"
-    r")?(?:-[A-Z0-9]+)?)"
-)
-
-# Sequence number at start of line
+RE_LOCATION  = re.compile(r"\bAVINA\d{2,3}\b")
+RE_DATE      = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{2,4})\b")
 RE_SEQ_START = re.compile(r"^\d+\s+")
 
+KNOWN_SUFFIXES = sorted([
+	"BAG", "PKT", "BOX", "CTN", "PCS",
+	"SET", "TIN", "BTL", "ROLL", "PAC",
+	"PAK", "UNIT", "KG", "G",
+], key=len, reverse=True)
 
-# ─── Parser ───────────────────────────────────────────────────────────────────
 
 class SEM105PDFParser:
 
@@ -75,43 +53,34 @@ class SEM105PDFParser:
 		result = ParsedPDF()
 
 		with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-			pages_text = []
-			for page in pdf.pages:
-				text = page.extract_text() or ""
-				pages_text.append(text)
-			full_text = "\n".join(pages_text)
+			full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
 
 		result.raw_text = full_text
 
-		# ── Step 1: Find SO numbers and customer ──────────────────────────
-		so_headers = RE_SO_HEADER.findall(full_text)
-		for so_no, customer in so_headers:
+		# ── SO numbers and customer ───────────────────────────────────────
+		for so_no, customer in RE_SO_HEADER.findall(full_text):
 			so_no = so_no.strip()
 			customer = customer.strip()
-			# Validate: SO number must be SO- followed by digits only
-			if re.match(r"^SO-\d+$", so_no):
-				if so_no not in result.so_numbers:
-					result.so_numbers.append(so_no)
-				if not result.customer_raw and customer:
+			if re.match(r"^SO-\d+$", so_no) and so_no not in result.so_numbers:
+				result.so_numbers.append(so_no)
+				if not result.customer_raw:
 					result.customer_raw = customer
 
+		# Fallback: scan anywhere in text
 		if not result.so_numbers:
-			# Fallback: search anywhere in text for SO-XXXXX pattern
-			fallback = re.findall(r"\bSO-\d+\b", full_text)
-			for so_no in fallback:
+			for so_no in re.findall(r"\bSO-\d+\b", full_text):
 				if so_no not in result.so_numbers:
 					result.so_numbers.append(so_no)
 
 		if not result.so_numbers:
 			result.parse_errors.append("No SO numbers found")
 
-		# ── Step 2: Parse line items ──────────────────────────────────────
+		# ── Line items ────────────────────────────────────────────────────
 		result.items = self._parse_all_lines(full_text, result.so_numbers)
 
 		if not result.items:
-			result.parse_errors.append("No line items extracted from PDF")
+			result.parse_errors.append("No line items extracted")
 
-		# ── Step 3: Summary fields ────────────────────────────────────────
 		if result.items:
 			result.delivery_date = result.items[0].delivery_date
 			result.location_code = result.items[0].location_code
@@ -126,13 +95,10 @@ class SEM105PDFParser:
 			line = line.strip()
 			if not line:
 				continue
-
-			# Switch SO context when header line detected
 			so_match = re.match(r"^(SO-\d+)\s+", line)
 			if so_match:
 				current_so = so_match.group(1)
 				continue
-
 			item = self._parse_item_line(line, current_so)
 			if item:
 				items.append(item)
@@ -140,16 +106,11 @@ class SEM105PDFParser:
 		return items
 
 	def _parse_item_line(self, line: str, current_so: str) -> Optional[ParsedLineItem]:
-		# Must start with sequence number
 		if not RE_SEQ_START.match(line):
 			return None
-
-		# Must have location code
 		loc_match = RE_LOCATION.search(line)
 		if not loc_match:
 			return None
-
-		# Must have date
 		date_match = RE_DATE.search(line)
 		if not date_match:
 			return None
@@ -160,42 +121,27 @@ class SEM105PDFParser:
 				return None
 
 			seq = int(parts[0])
-			raw_item_token = parts[1]
+			item_code = self._clean_item_code(parts[1])
 
-			# ── Clean item code ───────────────────────────────────────────
-			# pdfplumber sometimes merges item code with next word
-			# e.g. "TCD029-20PKT/BAGTRENDCELL" → "TCD029-20PKT/BAG"
-			# Strategy: known suffixes that end an item code
-			item_code = self._clean_item_code(raw_item_token)
-
-			# ── Location and its position ─────────────────────────────────
 			loc_code = loc_match.group()
-			loc_idx = next(
-				(i for i, p in enumerate(parts) if p == loc_code),
-				None
-			)
+			loc_idx = next((i for i, p in enumerate(parts) if p == loc_code), None)
 			if loc_idx is None:
 				return None
 
-			# ── Delivery date ─────────────────────────────────────────────
 			delivery_date = self._parse_date(date_match.group(1))
 
-			# ── Qty: first numeric value after location ───────────────────
 			qty = 0.0
 			for p in parts[loc_idx + 1:]:
 				try:
-					val = float(p.replace(",", ""))
-					qty = val
+					qty = float(p.replace(",", ""))
 					break
 				except ValueError:
 					continue
 
-			# ── Description: tokens between item code and location ────────
-			desc_parts = []
-			for p in parts[2:loc_idx]:
-				if RE_DATE.fullmatch(p):
-					continue
-				desc_parts.append(p)
+			desc_parts = [
+				p for p in parts[2:loc_idx]
+				if not RE_DATE.fullmatch(p)
+			]
 			description = " ".join(desc_parts).strip()
 
 			if not item_code or qty == 0:
@@ -210,36 +156,54 @@ class SEM105PDFParser:
 				qty=qty,
 				delivery_date=delivery_date,
 			)
-
 		except Exception:
 			return None
 
 	def _clean_item_code(self, raw: str) -> str:
 		"""
-		Cleans merged item codes from pdfplumber column merging.
-		e.g. "TCD029-20PKT/BAGTRENDCELL" → "TCD029-20PKT/BAG"
-		e.g. "D221-THAI-25KG/PBUALGUT"   → "D221-THAI-25KG/BAG"
+		Fixes pdfplumber column-merging where item code gets joined
+		with text from next column. e.g. "/PBUALGUT" → "/BAG"
 
-		Strategy: item codes end with known unit suffixes.
-		After the suffix, any attached text is discarded.
+		Uses three strategies:
+		  1. Exact prefix match  (clean PDFs)
+		  2. Anagram match       (letters present but scrambled)
+		  3. Subsequence match   (letters present in order)
 		"""
-		# Known unit suffixes that terminate an item code
-		unit_suffixes = [
-			"/BAG", "/PKT", "/KG", "/BOX", "/CTN",
-			"/PCS", "/SET", "/TIN", "/BTL", "/ROLL",
-			"/PAC", "/PAK", "/UNIT", "/G",
-		]
-		upper = raw.upper()
-		for suffix in unit_suffixes:
-			idx = upper.find(suffix)
-			if idx != -1:
-				# Keep everything up to and including the suffix
-				return raw[:idx + len(suffix)]
+		slash_idx = raw.find("/")
+		if slash_idx == -1:
+			return raw
 
-		# No suffix found — check if ends with -K or similar short suffix
-		# e.g. "TCS852-K" is valid as-is
-		# Just return as-is if it looks clean
-		return raw
+		prefix = raw[:slash_idx + 1]
+		after_slash = raw[slash_idx + 1:].upper()
+
+		# Strategy 1: exact prefix
+		for suffix in KNOWN_SUFFIXES:
+			if after_slash.startswith(suffix):
+				return prefix + suffix
+
+		# Strategy 2: anagram of first N chars
+		for suffix in KNOWN_SUFFIXES:
+			n = len(suffix)
+			candidate = after_slash[:n]
+			if len(candidate) == n and sorted(candidate) == sorted(suffix):
+				return prefix + suffix
+
+		# Strategy 3: all letters of suffix appear in order
+		for suffix in KNOWN_SUFFIXES:
+			remaining = after_slash
+			found_all = True
+			for ch in suffix:
+				idx = remaining.find(ch)
+				if idx == -1:
+					found_all = False
+					break
+				remaining = remaining[idx + 1:]
+			if found_all and len(suffix) >= 2:
+				return prefix + suffix
+
+		# Fallback: keep up to 5 alphanumeric chars
+		m = re.match(r"[A-Z0-9]{1,5}", after_slash)
+		return prefix + m.group() if m else raw
 
 	def _parse_date(self, raw: str) -> str:
 		try:
@@ -247,8 +211,6 @@ class SEM105PDFParser:
 		except Exception:
 			return raw
 
-
-# ─── Public function ──────────────────────────────────────────────────────────
 
 def parse_so_pdf(pdf_bytes: bytes) -> ParsedPDF:
 	return SEM105PDFParser().parse(pdf_bytes)
