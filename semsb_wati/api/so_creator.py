@@ -5,6 +5,7 @@ Creates ERPNext Sales Orders from parsed PDF data.
 
 import frappe
 from frappe.utils import getdate, today, add_days
+from semsb_wati.api.production_planner import create_production_plan_for_so
 
 
 def _get_location_mapping_name(location_code: str) -> str:
@@ -154,6 +155,19 @@ def _create_single_so(source_so_no, customer_raw, items, settings) -> str:
 		so.submit()
 
 	frappe.db.commit()
+
+	# ── Auto-create Production Plan ───────────────────────────────────────
+	try:
+		pp_name = create_production_plan_for_so(so.name)
+		if pp_name:
+			frappe.logger().info(f"Production Plan {pp_name} created for SO {so.name}")
+	except Exception:
+		# Don't fail SO creation if Production Plan fails
+		frappe.log_error(
+			frappe.get_traceback(),
+			f"WATI Production Plan - Failed for {so.name}"
+		)
+
 	return so.name
 
 
