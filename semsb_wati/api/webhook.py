@@ -1,12 +1,14 @@
 """
 webhook.py
-Step 5: Receives webhook, downloads PDF, parses it, logs extracted data.
+Step 6: Full pipeline - receive, download, parse, route, create SO.
 """
 
 import json
 import frappe
-from semsb_wati.api.wati_client import download_pdf
+from semsb_wati.api.wati_client import download_pdf, send_reply
 from semsb_wati.api.pdf_parser import parse_so_pdf
+from semsb_wati.api.routing import resolve_all_factories
+from semsb_wati.api.so_creator import create_sales_orders
 
 
 @frappe.whitelist(allow_guest=True)
@@ -46,7 +48,7 @@ def receive_wati_webhook():
 		# ── Filter: documents only ────────────────────────────────────────
 		if msg_type != "document":
 			log.db_set("status", "Ignored")
-			return {"status": "ignored", "reason": f"not a document"}
+			return {"status": "ignored", "reason": "not a document"}
 
 		# ── Filter: PDF only ──────────────────────────────────────────────
 		is_pdf = (
@@ -80,45 +82,72 @@ def receive_wati_webhook():
 		# ── Parse PDF ─────────────────────────────────────────────────────
 		parsed = parse_so_pdf(pdf_bytes)
 
-		# Build a summary to store in the log for review
-		summary_lines = []
-		summary_lines.append(f"SO Numbers: {', '.join(parsed.so_numbers)}")
-		summary_lines.append(f"Customer: {parsed.customer_raw}")
-		summary_lines.append(f"Delivery Date: {parsed.delivery_date}")
-		summary_lines.append(f"Location: {parsed.location_code}")
-		summary_lines.append(f"Lines extracted: {len(parsed.items)}")
-		summary_lines.append("")
-
-		for item in parsed.items:
-			summary_lines.append(
-				f"  [{item.source_so_no}] {item.item_code} | {item.description} | "
-				f"Loc: {item.location_code} | Qty: {item.qty} | Del: {item.delivery_date}"
-			)
-
 		if parsed.parse_errors:
-			summary_lines.append("")
-			summary_lines.append("PARSE ERRORS:")
-			summary_lines.extend(parsed.parse_errors)
+			error_msg = "\n".join(parsed.parse_errors)
+			log.db_set("status", "Error")
+			log.db_set("error_log", f"Parse errors:\n{error_msg}")
+			frappe.db.commit()
+			send_reply(wa_id,
+				f"⚠️ Could not process your PDF.\nIssues: {error_msg}\n"
+				f"Please contact the office."
+			)
+			return {"status": "error", "message": error_msg}
 
-		# Store parse result in error_log field for now (for review)
-		log.db_set("error_log", "\n".join(summary_lines))
+		# ── Factory routing ───────────────────────────────────────────────
+		parsed.items, routing_errors = resolve_all_factories(parsed.items)
+
+		if routing_errors:
+			log.db_set("error_log", "\n".join(routing_errors))
+			frappe.db.commit()
+
+		# ── Load Wati Settings ────────────────────────────────────────────
+		settings = frappe.get_single("Wati Settings")
+
+		# ── Test Mode: skip SO creation ───────────────────────────────────
+		if settings.test_mode:
+			log.db_set("status", "Success")
+			log.db_set("error_log",
+				f"TEST MODE - Would create SOs for: {', '.join(parsed.so_numbers)}\n"
+				f"Customer: {parsed.customer_raw}\n"
+				f"Lines: {len(parsed.items)}"
+			)
+			frappe.db.commit()
+			return {"status": "test_mode", "so_numbers": parsed.so_numbers}
+
+		# ── Create Sales Orders ───────────────────────────────────────────
+		created_sos = create_sales_orders(parsed, settings)
+		so_names_str = ", ".join(created_sos)
+
 		log.db_set("status", "Success")
+		log.db_set("sales_orders_created", so_names_str)
+		log.db_set("error_log", "")
 		frappe.db.commit()
 
+		# ── Notify sender ─────────────────────────────────────────────────
+		if settings.notify_sender_on_success:
+			msg = (settings.success_message_template or
+				"✅ Your Sales Order {so_name} has been received.\n"
+				"Items: {item_count} lines | Delivery: {delivery_date}"
+			).format(
+				so_name=so_names_str,
+				item_count=len(parsed.items),
+				delivery_date=parsed.delivery_date,
+			)
+			send_reply(wa_id, msg)
+
 		return {
-			"status":        "success",
-			"log":           log.name,
-			"so_numbers":    parsed.so_numbers,
-			"customer":      parsed.customer_raw,
-			"lines_found":   len(parsed.items),
-			"parse_errors":  parsed.parse_errors,
+			"status":      "success",
+			"log":         log.name,
+			"so_created":  created_sos,
+			"lines":       len(parsed.items),
 		}
 
 	except Exception:
-		frappe.log_error(frappe.get_traceback(), "WATI Webhook Error")
+		tb = frappe.get_traceback()
+		frappe.log_error(tb, "WATI Webhook Error")
 		try:
 			log.db_set("status", "Error")
-			log.db_set("error_log", frappe.get_traceback())
+			log.db_set("error_log", tb)
 			frappe.db.commit()
 		except Exception:
 			pass
