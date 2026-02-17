@@ -115,7 +115,23 @@ def receive_wati_webhook():
 			return {"status": "test_mode", "so_numbers": parsed.so_numbers}
 
 		# ── Create Sales Orders ───────────────────────────────────────────
-		created_sos = create_sales_orders(parsed, settings)
+		try:
+			created_sos = create_sales_orders(parsed, settings)
+		except frappe.ValidationError as e:
+			# SO cancelled due to missing items — notify sender
+			error_msg = str(e)
+			log.db_set("status", "Error")
+			log.db_set("error_log", error_msg)
+			frappe.db.commit()
+			send_reply(wa_id,
+				f"❌ Your Sales Order could not be created.
+"
+				f"{error_msg}
+"
+				f"Please contact the office to add the missing items."
+			)
+			return {"status": "error", "message": error_msg}
+
 		so_names_str = ", ".join(created_sos)
 
 		log.db_set("status", "Success")

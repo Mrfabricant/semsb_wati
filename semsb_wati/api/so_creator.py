@@ -101,30 +101,31 @@ def _create_single_so(source_so_no, customer_raw, items, settings) -> str:
 
 	# ── 3. Build SO line items ────────────────────────────────────────────
 	so_items = []
-	skipped = []
+	missing = []
 
 	for item in items:
 		if not frappe.db.exists("Item", item.item_code):
-			skipped.append(item.item_code)
-			frappe.log_error(
-				f"Item '{item.item_code}' not found in ERPNext. Skipping.",
-				"WATI SO - Item Not Found"
-			)
-			continue
+			missing.append(item.item_code)
+		else:
+			item_delivery = _sanitize_delivery_date(item.delivery_date or raw_delivery)
+			so_items.append({
+				"item_code":     item.item_code,
+				"qty":           item.qty,
+				"delivery_date": item_delivery,
+				"warehouse":     item.factory,
+			})
 
-		item_delivery = _sanitize_delivery_date(item.delivery_date or raw_delivery)
-
-		so_items.append({
-			"item_code":     item.item_code,
-			"qty":           item.qty,
-			"delivery_date": item_delivery,
-			"warehouse":     item.factory,
-		})
-
-	if not so_items:
+	# If ANY item is missing — cancel entire SO creation
+	if missing:
+		missing_str = ", ".join(missing)
+		frappe.log_error(
+			f"SO {source_so_no} cancelled — missing items in ERPNext: {missing_str}",
+			"WATI SO - Missing Items"
+		)
 		frappe.throw(
-			f"No valid items for SO {source_so_no}. "
-			f"Missing items: {', '.join(skipped)}"
+			f"SO {source_so_no} not created. "
+			f"These items do not exist in ERPNext: {missing_str}. "
+			f"Please add them first."
 		)
 
 	# ── 4. Company currency ───────────────────────────────────────────────
